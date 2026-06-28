@@ -31,7 +31,7 @@ var (
 		"A^",
 	}
 
-	// 13 sequential keys on the QWERTY row
+	//13 sequential keys on the QWERTY row
 	qwertyKeys = []int32{
 		rl.KeyQ, rl.KeyW, rl.KeyE, rl.KeyR, rl.KeyT, rl.KeyY,
 		rl.KeyU, rl.KeyI, rl.KeyO, rl.KeyP, rl.KeyLeftBracket,
@@ -54,6 +54,35 @@ func PollNote(note *uint) bool {
 	return false
 }
 
+const (
+	WaveSine = iota
+	WaveSquare
+	WaveTriangle
+	WaveSaw
+)
+
+func MakeWaves(amp float32, freq float32, waveType uint, sampleTime *float32, sampleSize uint32, sampleRate uint32) []float32 {
+	buffer := make([]float32, sampleSize)
+	for i := range buffer {
+		*sampleTime += 1.0 / float32(sampleRate)
+		y := float32(math.Sin(2 * math.Pi * float64(freq*(*sampleTime))))
+		switch waveType {
+		case WaveSine:
+			fallthrough
+		case WaveSquare:
+			y = float32(math.Floor(float64(y)))
+		case WaveTriangle:
+			y = float32(math.Asin(float64(y)))
+		case WaveSaw:
+			//pi*freq = omega
+			y = float32(math.Atan(math.Tan(math.Pi * float64(freq*(*sampleTime)))))
+
+		}
+		buffer[i] = y * amp
+	}
+	return buffer
+}
+
 func main() {
 	var (
 		note uint
@@ -70,9 +99,8 @@ func main() {
 
 	//number of samples to keep in memory at a time
 	rl.SetAudioStreamBufferSizeDefault(BUFFER_SIZE)
-	buffer := [BUFFER_SIZE]float32{}
 
-	//sampleSize = 32 bit floats
+	//sampleSize -> 32 bit floats
 	stream := rl.LoadAudioStream(SAMPLE_RATE, 32, 1)
 	rl.SetAudioStreamPan(stream, 0.0)
 	rl.PlayAudioStream(stream)
@@ -91,13 +119,7 @@ func main() {
 		}
 
 		if rl.IsAudioStreamProcessed(stream) {
-			for i := range buffer {
-				y := A * float32(math.Sin(2*math.Pi*float64(f*sampleTime)))
-				buffer[i] = float32(math.Floor(float64(y)))
-				// buffer[i] = y
-				// buffer[i] = y * rand.Float32()
-				sampleTime += 1.0 / SAMPLE_RATE
-			}
+			buffer := MakeWaves(A, f, WaveSaw, &sampleTime, BUFFER_SIZE, SAMPLE_RATE)
 			rl.UpdateAudioStream(stream, buffer[:]) //colon for slice
 
 			for i := 0; i < len(buffer); i += 16 {
@@ -108,8 +130,8 @@ func main() {
 
 		}
 
-		rl.DrawText(fmt.Sprint("frequency: ", f), 0, TEXT_SIZE*0, TEXT_SIZE, rl.Red)
-		rl.DrawText(fmt.Sprint("Note: ", noteNames[note]), 0, TEXT_SIZE*1, TEXT_SIZE, rl.Red)
+		rl.DrawText(fmt.Sprintf("Frequency: %f Hz", f), 0, TEXT_SIZE*0, TEXT_SIZE, rl.Red)
+		rl.DrawText(fmt.Sprintf("Note: %v", noteNames[note]), 0, TEXT_SIZE*1, TEXT_SIZE, rl.Red)
 		rl.EndDrawing()
 	}
 }
