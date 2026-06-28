@@ -15,52 +15,43 @@ const (
 )
 
 var (
+	noteNames = [...]string{
+		"A",
+		"A#",
+		"B",
+		"C",
+		"C#",
+		"D",
+		"D#",
+		"E",
+		"F",
+		"F#",
+		"G",
+		"G#",
+		"A^",
+	}
+
+	// 13 sequential keys on the QWERTY row
+	qwertyKeys = []int32{
+		rl.KeyQ, rl.KeyW, rl.KeyE, rl.KeyR, rl.KeyT, rl.KeyY,
+		rl.KeyU, rl.KeyI, rl.KeyO, rl.KeyP, rl.KeyLeftBracket,
+		rl.KeyRightBracket, rl.KeyBackSlash,
+	}
 	sampleTime float32
 )
 
 func NoteToFreq(n uint) float32 {
-	r := math.Pow(2, float64(1)/12)
-	return BASE_FREQ * float32(math.Pow(r, float64(n)))
+	return BASE_FREQ * float32(math.Pow(2, float64(n)/12))
 }
 
-func PollNote(note *uint) {
-
-	if rl.IsKeyDown(rl.KeyOne) {
-		*note = 0
+func PollNote(note *uint) bool {
+	for i, key := range qwertyKeys {
+		if rl.IsKeyDown(key) {
+			*note = uint(i)
+			return true
+		}
 	}
-	if rl.IsKeyDown(rl.KeyTwo) {
-		*note = 1
-	}
-	if rl.IsKeyDown(rl.KeyThree) {
-		*note = 2
-	}
-	if rl.IsKeyDown(rl.KeyFour) {
-		*note = 3
-	}
-	if rl.IsKeyDown(rl.KeyFive) {
-		*note = 4
-	}
-	if rl.IsKeyDown(rl.KeySix) {
-		*note = 5
-	}
-	if rl.IsKeyDown(rl.KeySeven) {
-		*note = 6
-	}
-	if rl.IsKeyDown(rl.KeyEight) {
-		*note = 7
-	}
-	if rl.IsKeyDown(rl.KeyNine) {
-		*note = 8
-	}
-	if rl.IsKeyDown(rl.KeyZero) {
-		*note = 9
-	}
-	if rl.IsKeyDown(rl.KeyMinus) {
-		*note = 10
-	}
-	if rl.IsKeyDown(rl.KeyEqual) {
-		*note = 11
-	}
+	return false
 }
 
 func main() {
@@ -70,9 +61,9 @@ func main() {
 		f    float32 = BASE_FREQ
 	)
 
-	rl.InitWindow(800, 450, "Sound Synthesis")
+	rl.InitWindow(800, 450, "Music Synthesis")
 	defer rl.CloseWindow()
-	rl.SetTargetFPS(60)
+	rl.SetTargetFPS(24)
 
 	rl.InitAudioDevice()
 	defer rl.CloseAudioDevice()
@@ -90,19 +81,35 @@ func main() {
 		rl.BeginDrawing()
 
 		rl.ClearBackground(rl.RayWhite)
-		PollNote(&note)
+
+		if PollNote(&note) {
+			f = NoteToFreq(note)
+			rl.ResumeAudioStream(stream)
+		} else {
+			rl.PauseAudioStream(stream)
+			sampleTime = 0.0
+		}
 
 		if rl.IsAudioStreamProcessed(stream) {
 			for i := range buffer {
 				y := A * float32(math.Sin(2*math.Pi*float64(f*sampleTime)))
-				buffer[i] = y
+				buffer[i] = float32(math.Floor(float64(y)))
+				// buffer[i] = y
+				// buffer[i] = y * rand.Float32()
 				sampleTime += 1.0 / SAMPLE_RATE
 			}
 			rl.UpdateAudioStream(stream, buffer[:]) //colon for slice
+
+			for i := 0; i < len(buffer); i += 16 {
+				if i <= rl.GetScreenWidth() {
+					rl.DrawCircle(int32(i), int32(100*buffer[i]+225), 5, rl.Blue)
+				}
+			}
+
 		}
-		f = NoteToFreq(note)
+
 		rl.DrawText(fmt.Sprint("frequency: ", f), 0, TEXT_SIZE*0, TEXT_SIZE, rl.Red)
-		rl.DrawText(fmt.Sprint("Note: ", note), 0, TEXT_SIZE*1, TEXT_SIZE, rl.Red)
+		rl.DrawText(fmt.Sprint("Note: ", noteNames[note]), 0, TEXT_SIZE*1, TEXT_SIZE, rl.Red)
 		rl.EndDrawing()
 	}
 }
