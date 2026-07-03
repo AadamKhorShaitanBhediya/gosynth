@@ -14,8 +14,16 @@ const (
 	TEXT_SIZE   = 20
 )
 
+const (
+	WaveSine = iota
+	WaveSquare
+	WaveTriangle
+	WaveSaw
+)
+
 var (
 	noteNames = [...]string{
+		"None",
 		"A",
 		"A#",
 		"B",
@@ -37,6 +45,12 @@ var (
 		rl.KeyU, rl.KeyI, rl.KeyO, rl.KeyP, rl.KeyLeftBracket,
 		rl.KeyRightBracket, rl.KeyBackSlash,
 	}
+	waveNames = []string{
+		"Sine",
+		"Square",
+		"Triangle",
+		"Saw",
+	}
 	sampleTime float32
 )
 
@@ -49,21 +63,21 @@ type Envelope struct {
 
 	triggerOnTime  float32
 	triggerOffTime float32
-	noteOn         bool
+	keyPressed     bool
 }
 
 func (e *Envelope) GetAmp(time float32) float32 {
 	var amp float32 = 0.0
-	lifeTime := time - e.triggerOnTime
 
-	if e.noteOn {
+	if e.keyPressed {
+		lifeTime := time - e.triggerOnTime
 		// attack
 		if lifeTime > 0 && lifeTime <= e.attackTime {
 			amp = (e.startAmp / e.attackTime) * lifeTime
 		}
 		// decay
 		if lifeTime > e.attackTime && lifeTime <= (e.decayTime+e.attackTime) {
-			amp = e.startAmp - ((e.startAmp-e.sustainAmp)/e.decayTime)*(lifeTime-e.attackTime)
+			amp = ((e.sustainAmp-e.startAmp)/e.decayTime)*(lifeTime-e.attackTime) + e.startAmp
 		}
 		// sustain
 		if lifeTime > (e.decayTime + e.attackTime) {
@@ -71,7 +85,8 @@ func (e *Envelope) GetAmp(time float32) float32 {
 		}
 	} else {
 		// release
-		amp = ((-e.sustainAmp)/e.releaseTime)*(time-e.triggerOffTime) + e.sustainAmp
+		lifeTime := time - e.triggerOffTime
+		amp = ((0-e.sustainAmp)/e.releaseTime)*lifeTime + e.sustainAmp
 	}
 	if amp <= 0.0001 {
 		amp = 0
@@ -80,51 +95,33 @@ func (e *Envelope) GetAmp(time float32) float32 {
 	return amp
 }
 
-func (e *Envelope) NoteOn(timeOn float32) {
+func (e *Envelope) Trigger(timeOn float32) {
 	e.triggerOnTime = timeOn
-	e.noteOn = true
+	e.keyPressed = true
 }
 
-func (e *Envelope) NoteOff(timeOff float32) {
+func (e *Envelope) Untrigger(timeOff float32) {
 	e.triggerOffTime = timeOff
-	e.noteOn = false
+	e.keyPressed = false
 }
 
 func DefaultEnvelope() Envelope {
 	return Envelope{
 
 		startAmp:       1.0,
-		attackTime:     0.5,
+		attackTime:     0.3,
 		decayTime:      0.3,
-		sustainAmp:     0.3,
-		releaseTime:    2.0,
+		sustainAmp:     0.7,
+		releaseTime:    0.5,
 		triggerOnTime:  0.0,
 		triggerOffTime: 0.0,
-		noteOn:         false,
+		keyPressed:     false,
 	}
 }
 
-func NoteToFreq(n uint) float32 {
+func NoteToFreq(n int32) float32 {
 	return BASE_FREQ * float32(math.Pow(2, float64(n)/12))
 }
-
-// true if any key pressed, false if no key pressed
-func PollNote(note *uint) bool {
-	for i, key := range qwertyKeys {
-		if rl.IsKeyPressed(key) {
-			*note = uint(i)
-			return true
-		}
-	}
-	return false
-}
-
-const (
-	WaveSine = iota
-	WaveSquare
-	WaveTriangle
-	WaveSaw
-)
 
 func MakeWaves(amp float32, freq float32, waveType uint, sampleTime *float32, sampleSize uint32, sampleRate uint32) []float32 {
 	buffer := make([]float32, sampleSize)
@@ -153,9 +150,10 @@ func MakeWaves(amp float32, freq float32, waveType uint, sampleTime *float32, sa
 
 func main() {
 	var (
-		note uint
-		A    float32 = 0.3
-		f    float32 = BASE_FREQ
+		note    int32
+		A       float32 = 0.3
+		f       float32 = BASE_FREQ
+		lastkey int32   = -1 //invalid note key
 	)
 	env := DefaultEnvelope()
 
@@ -181,16 +179,26 @@ func main() {
 
 		rl.ClearBackground(rl.RayWhite)
 
-		if PollNote(&note) {
-			f = NoteToFreq(note)
-			env.NoteOn(float32(rl.GetTime()))
-		} else if env.noteOn {
-			env.NoteOff(float32(rl.GetTime()))
+		for notenum, key := range qwertyKeys {
+			if rl.IsKeyPressed(key) {
+				lastkey = key
+				env.Trigger(float32(rl.GetTime()))
+				f = NoteToFreq(int32(notenum))
+				note = int32(notenum + 1)
+				break
+			}
 		}
+
+		if lastkey != -1 && rl.IsKeyReleased(lastkey) {
+			lastkey = -1
+			note = 0
+			env.Untrigger(float32(rl.GetTime()))
+		}
+
 		A = env.GetAmp(float32(rl.GetTime()))
 
 		if rl.IsKeyPressed(rl.KeySpace) {
-			waveType = (waveType + 1) % 3
+			waveType = (waveType + 1) % 4
 		}
 
 		visualBuffer := []float32{}
@@ -199,14 +207,14 @@ func main() {
 			rl.UpdateAudioStream(stream, buffer[:]) // colon for slice
 			visualBuffer = buffer[:800]
 		}
-		for i := 0; i < len(visualBuffer); i += 10 {
-			rl.DrawCircle(int32(i), int32(100*visualBuffer[i]+225), 3, rl.Blue)
+		for i := 0; i < len(visualBuffer); i += 2 {
+			rl.DrawCircle(int32(i), int32(100*visualBuffer[i]+float32(rl.GetScreenHeight()/2)), 3, rl.Blue)
 		}
 
 		rl.DrawText(fmt.Sprintf("Frequency: %f Hz", f), 0, TEXT_SIZE*0, TEXT_SIZE, rl.Red)
 		rl.DrawText(fmt.Sprintf("Note: %v", noteNames[note]), 0, TEXT_SIZE*1, TEXT_SIZE, rl.Red)
 		rl.DrawText(fmt.Sprintf("Amplitude: %v", A), 0, TEXT_SIZE*2, TEXT_SIZE, rl.Red)
-		rl.DrawText(fmt.Sprintf("Wave Type (Press Spacebar): %v", waveType), 0, TEXT_SIZE*3, TEXT_SIZE, rl.Red)
+		rl.DrawText(fmt.Sprintf("Wave Type (Press Spacebar): %v", waveNames[waveType]), 0, TEXT_SIZE*3, TEXT_SIZE, rl.Red)
 		rl.EndDrawing()
 	}
 }
